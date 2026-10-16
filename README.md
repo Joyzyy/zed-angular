@@ -1,8 +1,12 @@
-# Zed Angular Extension
+# Angular Plus for Zed
+
+A fork of [nathansbradshaw/zed-angular](https://github.com/nathansbradshaw/zed-angular) that adds:
+
+- plain HTML completions (tags, attributes) in Angular templates next to the Angular ones, like VS Code
+- Tailwind class completions in templates
+- an optional completion proxy that keeps template completions fast while typing
 
 ## Overview
-
-**Note: This project is currently a work in progress. Expect potential bugs or issues.**
 
 This extension integrates the Angular Language Service into Zed. It uses the same options that Angular applies during compilation. To ensure the most accurate information, enable the `strictTemplates` option in the `tsconfig.json` of the angular project as shown in below:
 
@@ -48,6 +52,8 @@ All options are set under `lsp.angular.initialization_options` in your Zed `sett
 | ------------------------------ | -------- | ---------------------------------------- | ---------------------------------------------------------------------------------- |
 | `angular_language_server_path` | `string` | `node_modules/@angular/language-server`  | Location of the `@angular/language-server` package directory.                      |
 | `max_ts_server_memory`         | `number` | unset (node default, ~4 GB)              | Heap limit in MB, passed to node as `--max-old-space-size`.                         |
+| `include_completions_for_module_exports` | `boolean` | `true` | Suggest components that aren't imported yet (adds the import on accept). Set `false` in large projects if completions lag — measured ~8× faster, but only already-imported components are suggested. |
+| `completion_proxy_path`        | `string` | unset                                    | Path to the `angular-completion-proxy` binary (see [Completion latency](#completion-latency)). Absolute, `~`-prefixed or worktree-relative. |
 
 Both can be combined — this is the typical monorepo setup, where the app lives in a subfolder *and* the project is large enough to exhaust node's default heap:
 
@@ -82,6 +88,30 @@ The path is **not validated** by the extension. Zed extensions run sandboxed and
 
 TypeScript and Angular are then probed in the worktree root, its `node_modules`, and the ancestors of the resolved package directory — so a server under `client/` still resolves `client/node_modules/typescript` correctly.
 
+### Completion latency
+
+After every edit the server recompiles the template before it can answer, and Zed shows the completion menu only once every server has answered. Zed also sends a new completion request on each keystroke; the server can't abort a running compile, so those requests queue up. The optional `angular-completion-proxy` (in `proxy/`) sits in between and — like VS Code — answers completion requests made while you keep typing a word from the request already in flight, instead of queueing another compile. Measured on a 700-line template: ~2.1 s → ~1.0 s.
+
+Install it once per machine (needs Rust) and point the extension at it:
+
+```sh
+cargo install --path proxy
+```
+
+```json
+{
+  "lsp": {
+    "angular": {
+      "initialization_options": {
+        "completion_proxy_path": "~/.cargo/bin/angular-completion-proxy"
+      }
+    }
+  }
+}
+```
+
+Without `completion_proxy_path` the server is started directly. After pulling proxy changes, run `cargo install --path proxy` again and restart the language server.
+
 ### Memory
 
 In large workspaces (e.g. monorepos), the language server can exceed node's default heap limit (~4 GB) and crash repeatedly. If the server keeps restarting or stops responding after a few minutes, raise the limit with `max_ts_server_memory` (in MB, passed to node as `--max-old-space-size`):
@@ -99,28 +129,3 @@ In large workspaces (e.g. monorepos), the language server can exceed node's defa
 ```
 
 Start at `8192` and increase only if crashes persist; the value is a ceiling, not a reservation, so node allocates lazily. Setting it above the machine's available RAM will trade crashes for swapping. The flag is emitted before the server script path so node interprets it, and it is omitted entirely when the option is unset.
-
-## Installation Instructions
-
-To install this extension locally:
-
-1. Clone this repository.
-2. Open the Zed editor and navigate to the Extensions window.
-3. Click on "Install Dev Extension."
-4. Select the cloned repository location and complete the installation.
-5. Add a language server list definition to the HTML and TypeScript language settings. In `settings.json`, add the following _(ellipsis is a valid value in settings, use it as shown)_:
-
-```json
-{
-  "languages": {
-    "TypeScript": {
-      "language_servers": ["angular", "..."]
-    },
-    "HTML": {
-      "language_servers": ["angular", "..."]
-    }
-  }
-}
-```
-
-If the published version of the extension is already installed, Zed uninstalls it before installing the dev extension. After changing the source, run `zed: rebuild dev extension` from the command palette — the extension is compiled to WebAssembly at install/rebuild time, so edits are not picked up until you do.

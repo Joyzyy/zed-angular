@@ -4,6 +4,7 @@ path_suffixes = ["component.html", "ng.html"]
 block_comment = ["<!-- ", " -->"]
 autoclose_before = ";:.,=}])>\"'"
 prettier_parser_name = "angular"
+completion_query_characters = ["-"]
 
 scope_opt_in_language_servers = ["tailwindcss-language-server"]
 
@@ -27,3 +28,6 @@ brackets = [
         "string",
     ] },
 ]
+
+[overrides.string]
+opt_into_language_servers = ["tailwindcss-language-server"]

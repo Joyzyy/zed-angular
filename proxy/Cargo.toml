@@ -1,0 +1,12 @@
+[package]
+name = "angular-completion-proxy"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "MIT"
+
+[dependencies]
+serde_json = "1.0"
+
+# standalone: built natively, not as part of the wasm extension
+[workspace]

@@ -7,11 +7,24 @@ use zed_extension_api::{self as zed, serde_json, Result};
 /// Default location of the language server package, relative to the worktree root.
 const DEFAULT_SERVER_DIR: &str = "node_modules/@angular/language-server";
 
+/// Plain HTML completions (tags, attributes) for Angular templates, same
+/// package Zed's HTML extension uses.
+const HTML_SERVER_ID: &str = "angular-html";
+const HTML_PACKAGE: &str = "@zed-industries/vscode-langservers-extracted";
+const HTML_SERVER_PATH: &str =
+    "node_modules/@zed-industries/vscode-langservers-extracted/bin/vscode-html-language-server";
+
 #[derive(Deserialize, Default)]
 struct UserSettings {
     /// Maximum heap size (in MB) for the language server process, passed to
     /// node as `--max-old-space-size`.
     max_ts_server_memory: Option<u32>,
+    /// Offer components that aren't imported yet (adds the import on accept).
+    /// Costs most of the completion latency in large projects.
+    include_completions_for_module_exports: Option<bool>,
+    /// Path to a locally built `angular-completion-proxy` binary (see
+    /// `proxy/`). When set, the server is started through it.
+    completion_proxy_path: Option<String>,
     /// Override the location of the `@angular/language-server` package.
     /// Worktree-relative, absolute, or `~`-prefixed. Defaults to
     /// `node_modules/@angular/language-server`.
@@ -69,13 +82,17 @@ impl AngularExtension {
             .filter(|p| !p.is_empty())
             .unwrap_or_else(|| DEFAULT_SERVER_DIR.to_string());
 
-        let is_drive_abs = requested.len() > 2
-            && requested.as_bytes()[1] == b':'
-            && requested.as_bytes()[2] == b'/';
-        if requested.starts_with('/') || is_drive_abs {
-            requested
+        Self::absolute(root, requested)
+    }
+
+    /// Worktree-relative paths are resolved against `root`.
+    fn absolute(root: &str, path: String) -> String {
+        let is_drive_abs =
+            path.len() > 2 && path.as_bytes()[1] == b':' && path.as_bytes()[2] == b'/';
+        if path.starts_with('/') || is_drive_abs {
+            path
         } else {
-            format!("{root}/{requested}")
+            format!("{root}/{path}")
         }
     }
 
@@ -105,6 +122,24 @@ impl AngularExtension {
         }
         unique.join(",")
     }
+
+    // ponytail: installs once and never updates, compare against npm_package_latest_version if that matters
+    fn html_server_command() -> Result<zed::Command> {
+        if zed::npm_package_installed_version(HTML_PACKAGE)?.is_none() {
+            let version = zed::npm_package_latest_version(HTML_PACKAGE)?;
+            zed::npm_install_package(HTML_PACKAGE, &version)?;
+        }
+
+        let path = std::env::current_dir()
+            .map_err(|e| e.to_string())?
+            .join(HTML_SERVER_PATH);
+
+        Ok(zed::Command {
+            command: zed::node_binary_path()?,
+            args: vec![path.to_string_lossy().into_owned(), "--stdio".into()],
+            env: Default::default(),
+        })
+    }
 }
 
 impl zed::Extension for AngularExtension {
@@ -117,6 +152,10 @@ impl zed::Extension for AngularExtension {
         language_server_id: &zed::LanguageServerId,
         worktree: &zed::Worktree,
     ) -> Result<zed::Command> {
+        if language_server_id.as_ref() == HTML_SERVER_ID {
+            return Self::html_server_command();
+        }
+
         let settings: UserSettings =
             LspSettings::for_worktree(language_server_id.as_ref(), worktree)
                 .ok()
@@ -144,12 +183,29 @@ impl zed::Extension for AngularExtension {
         args.push(probes.clone());
         args.push("--ngProbeLocations".into());
         args.push(probes);
+        if let Some(enabled) = settings.include_completions_for_module_exports {
+            args.push("--includeCompletionsForModuleExports".into());
+            args.push(enabled.to_string());
+        }
         args.push("--logToConsole".into());
         args.push("--logVerbosity".into());
         args.push("normal".into());
 
+        let node = zed::node_binary_path()?;
+        let (command, args) = match settings.completion_proxy_path {
+            Some(proxy) => {
+                let proxy = Self::expand_home(worktree, proxy.trim()).replace('\\', "/");
+                let root = worktree.root_path();
+                (
+                    Self::absolute(root.trim_end_matches('/'), proxy),
+                    [vec![node], args].concat(),
+                )
+            }
+            None => (node, args),
+        };
+
         Ok(zed::Command {
-            command: zed::node_binary_path()?,
+            command,
             args,
             env: worktree.shell_env(),
         })

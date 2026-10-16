@@ -1,17 +1,21 @@
-id = "angular"
-name = "Angular"
-description = "Angular Language support"
-version = "0.0.7"
+id = "angular-plus"
+name = "Angular Plus"
+description = "Angular language support with HTML, Tailwind and fast template completions"
+version = "0.1.0"
 schema_version = 1
-authors = ["nathansbradshaw"]
-repository = "https://github.com/nathansbradshaw/zed-angular"
-path_suffixes = ["html", "ng.html"]
+authors = ["nathansbradshaw", "Joyzyy"]
+repository = "https://github.com/Joyzyy/zed-angular"
 
 [language_servers.angular]
 name = "Angular Language Server"
 languages = ["TypeScript", "HTML", "Angular"]
-language_ids = { "Angular" = "angular", "HTML" = "html", "TypeScript" = "typescript" }
+language_ids = { "Angular" = "html", "HTML" = "html", "TypeScript" = "typescript" }
 command = { extension = true }
+
+[language_servers.angular-html]
+name = "Angular HTML"
+languages = ["Angular"]
+language_ids = { "Angular" = "html" }
 
 [grammars.angular]
 repository = "https://github.com/dlvandenberg/tree-sitter-angular"
